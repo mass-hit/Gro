@@ -13,11 +13,8 @@ type Context struct {
 	Req        *http.Request
 	Path       string
 	Method     string
+	ParamMap   map[string]string
 	StatusCode int
-}
-
-func NewContext(writer http.ResponseWriter, req *http.Request) *Context {
-	return &Context{Writer: writer, Req: req, Path: req.URL.Path, Method: req.Method}
 }
 
 func (c *Context) PostForm(key string) string {

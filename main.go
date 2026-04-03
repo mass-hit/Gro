@@ -25,5 +25,14 @@ func main() {
 	r.POST("/register/12", func(context *gro.Context) {
 		context.String(http.StatusOK, "register 12")
 	})
+	r.GET("/hello/:name", func(context *gro.Context) {
+		context.String(http.StatusOK, "hello %s", context.ParamMap["name"])
+	})
+	r.GET("/hello/:name/:age", func(context *gro.Context) {
+		context.JSON(http.StatusOK, gro.H{
+			"name": context.ParamMap["name"],
+			"age":  context.ParamMap["age"],
+		})
+	})
 	r.Run(":8080")
 }
