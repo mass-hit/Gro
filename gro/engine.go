@@ -10,10 +10,13 @@ type HandlerFunc func(*Context)
 type Engine struct {
 	trees     Trees
 	maxParams uint16
+	RouterGroup
 }
 
 func New() *Engine {
-	return &Engine{trees: make(Trees, 0, 4), maxParams: 0}
+	engine := &Engine{trees: make(Trees, 0, 4), maxParams: 0}
+	engine.RouterGroup.engine = engine
+	return engine
 }
 
 func (engine *Engine) NewContext(writer http.ResponseWriter, req *http.Request) *Context {
@@ -51,14 +54,6 @@ func countParams(path string) uint16 {
 		}
 	}
 	return n
-}
-
-func (engine *Engine) GET(pattern string, handler HandlerFunc) {
-	engine.addRoute("GET", pattern, handler)
-}
-
-func (engine *Engine) POST(pattern string, handler HandlerFunc) {
-	engine.addRoute("POST", pattern, handler)
 }
 
 func (engine *Engine) Run(addr string) (err error) {
