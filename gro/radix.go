@@ -8,7 +8,10 @@ import (
 const (
 	skind = iota
 	pkind
+	akind
+	kindNum
 	paramLabel = byte(':')
+	anyLabel   = byte('*')
 	slash      = byte('/')
 	nilString  = ""
 )
@@ -33,8 +36,30 @@ func checkPathValid(path string) {
 			if path[i-1] != slash {
 				panic("param must after '/'")
 			}
-			if (i < pathLen-1 && path[i+1] == paramLabel) || i == (pathLen-1) {
+			if i == pathLen-1 || path[i+1] == slash {
 				panic("param must be named with a non-empty name in path '" + path + "'")
+			}
+			i++
+			for ; i < pathLen && path[i] != slash; i++ {
+				if path[i] == paramLabel || path[i] == anyLabel {
+					panic("multi params in path '" + path + "'")
+				}
+			}
+		} else if path[i] == anyLabel {
+			if path[i-1] != slash {
+				panic("param must after '/'")
+			}
+			if i == pathLen-1 {
+				panic("param must be named with a non-empty name in path '" + path + "'")
+			}
+			i++
+			for ; i < pathLen; i++ {
+				if path[i] == slash {
+					panic("any routes are only allowed at the end of the path in path '" + path + "'")
+				}
+				if path[i] == paramLabel || path[i] == anyLabel {
+					panic("multi params in path '" + path + "'")
+				}
 			}
 		}
 	}
@@ -64,6 +89,11 @@ func (tree *tree) addRoute(path string, handler HandlerFunc) {
 				return
 			}
 			tree.insert(path[:i], nil, pkind, params)
+		} else if path[i] == anyLabel {
+			tree.insert(path[:i], nil, skind, nil)
+			params = append(params, path[i+1:])
+			tree.insert(path[:i+1], handler, akind, params)
+			return
 		}
 	}
 	// Insert static path if no params
@@ -87,17 +117,23 @@ func (tree *tree) insert(path string, handler HandlerFunc, kind int8, params []s
 		}
 		if lcpLen < prefixLen {
 			// Create a new child node
-			n := newNode(currentNode.kind, currentNode.prefix[lcpLen:], currentNode.handler, currentNode, currentNode.children, currentNode.paramChild, currentNode.params)
+			n := newNode(currentNode.kind, currentNode.prefix[lcpLen:], currentNode.handler, currentNode, currentNode.children, currentNode.paramChild, currentNode.anyChild, currentNode.params)
 			for _, child := range currentNode.children {
 				child.parent = n
 			}
 			if currentNode.paramChild != nil {
 				currentNode.paramChild.parent = n
 			}
+			if currentNode.anyChild != nil {
+				currentNode.anyChild.parent = n
+			}
 			// Update the current node
 			currentNode.kind = skind
 			currentNode.prefix = currentNode.prefix[:lcpLen]
+			currentNode.children = nil
 			currentNode.handler = nil
+			currentNode.paramChild = nil
+			currentNode.anyChild = nil
 			currentNode.children = []*node{n}
 			if lcpLen == searchLen {
 				// Set the handler to the current node
@@ -105,17 +141,19 @@ func (tree *tree) insert(path string, handler HandlerFunc, kind int8, params []s
 				currentNode.handler = handler
 				currentNode.params = params
 			} else {
-				currentNode.children = append(currentNode.children, newNode(kind, search[lcpLen:], handler, currentNode, nil, nil, params))
+				currentNode.children = append(currentNode.children, newNode(kind, search[lcpLen:], handler, currentNode, nil, nil, nil, params))
 			}
 		} else if lcpLen < searchLen {
 			// Continue search
 			search = search[lcpLen:]
 			if nextNode := currentNode.findChildWithLabel(search[0]); nextNode == nil {
-				child := newNode(kind, search, handler, currentNode, nil, nil, params)
+				child := newNode(kind, search, handler, currentNode, nil, nil, nil, params)
 				if kind == skind {
 					currentNode.children = append(currentNode.children, child)
-				} else {
+				} else if kind == pkind {
 					currentNode.paramChild = child
+				} else {
+					currentNode.anyChild = child
 				}
 			} else {
 				currentNode = nextNode
@@ -154,7 +192,7 @@ func (tree *tree) find(path string, params *[]Param) (handler HandlerFunc) {
 				goto Param
 			}
 			search = search[prefixLen:]
-			searchIndex += len(currentNode.prefix)
+			searchIndex += prefixLen
 		}
 		// End of path
 		if search == nilString {
@@ -186,6 +224,17 @@ func (tree *tree) find(path string, params *[]Param) (handler HandlerFunc) {
 			}
 			continue
 		}
+	Any:
+		if child := currentNode.anyChild; child != nil {
+			currentNode = child
+			*params = (*params)[:(paramIndex + 1)]
+			(*params)[paramIndex].Value = search
+			paramIndex++
+			search = nilString
+			searchIndex += len(search)
+			handler = currentNode.handler
+			break
+		}
 		// Backtrack
 		previous := currentNode
 		currentNode = previous.parent
@@ -199,7 +248,16 @@ func (tree *tree) find(path string, params *[]Param) (handler HandlerFunc) {
 			searchIndex -= len((*params)[paramIndex].Value)
 			*params = (*params)[:paramIndex]
 		}
-		search = path[:searchIndex]
+		search = path[searchIndex:]
+		nextKind := (previous.kind + 1) % kindNum
+		switch nextKind {
+		case pkind:
+			goto Param
+		case akind:
+			goto Any
+		default:
+			break
+		}
 	}
 	// Fill parameter keys
 	for i, param := range currentNode.params {
@@ -226,6 +284,9 @@ func (n *node) findChildWithLabel(char byte) *node {
 	if char == paramLabel {
 		return n.paramChild
 	}
+	if char == anyLabel {
+		return n.anyChild
+	}
 	return nil
 }
 
@@ -236,9 +297,10 @@ type node struct {
 	parent     *node
 	children   []*node
 	paramChild *node
+	anyChild   *node
 	params     []string
 }
 
-func newNode(kind int8, prefix string, handler HandlerFunc, parent *node, children []*node, paramChild *node, params []string) *node {
-	return &node{kind: kind, prefix: prefix, handler: handler, parent: parent, children: children, paramChild: paramChild, params: params}
+func newNode(kind int8, prefix string, handler HandlerFunc, parent *node, children []*node, paramChild *node, anyChild *node, params []string) *node {
+	return &node{kind: kind, prefix: prefix, handler: handler, parent: parent, children: children, paramChild: paramChild, anyChild: anyChild, params: params}
 }
