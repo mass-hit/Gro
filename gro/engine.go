@@ -19,16 +19,12 @@ func New() *Engine {
 	return engine
 }
 
-func (engine *Engine) NewContext(writer http.ResponseWriter, req *http.Request) *Context {
-	return &Context{Writer: writer, Req: req, Path: req.URL.Path, Method: req.Method}
-}
-
-func (engine *Engine) addRoute(method string, path string, handler HandlerFunc) {
+func (engine *Engine) addRoute(method string, path string, handlers []HandlerFunc) {
 	// Validate input
 	utils.Assert(len(path) > 0, "path is empty")
 	utils.Assert(path[0] == '/', "path must begin with '/'")
 	utils.Assert(method != "", "method is empty")
-	utils.Assert(handler != nil, "handler can not be nil")
+	utils.Assert(handlers != nil && len(handlers) > 0, "handler can not be nil")
 	// Find root of the tree for the given HTTP method
 	methodTree := engine.trees.get(method)
 	// If no tree exists for this method, create a new one
@@ -37,7 +33,7 @@ func (engine *Engine) addRoute(method string, path string, handler HandlerFunc) 
 		engine.trees = append(engine.trees, methodTree)
 	}
 	// Insert the route into the radix tree
-	methodTree.addRoute(path, handler)
+	methodTree.addRoute(path, handlers)
 	// Update maximum parameter count
 	if paramCount := countParams(path); paramCount > engine.maxParams {
 		engine.maxParams = paramCount
@@ -61,14 +57,15 @@ func (engine *Engine) Run(addr string) (err error) {
 }
 
 func (engine *Engine) ServeHTTP(w http.ResponseWriter, req *http.Request) {
-	c := engine.NewContext(w, req)
+	c := NewContext(w, req)
 	if methodTree := engine.trees.get(req.Method); methodTree != nil {
 		params := make([]Param, 0, engine.maxParams)
 		// Find handler for the given path
-		handler := methodTree.find(c.Path, &params)
-		if handler != nil {
+		handlers := methodTree.find(c.Path, &params)
+		if handlers != nil {
 			c.ParamMap = convertToParamMap(params)
-			handler(c)
+			c.Handlers = handlers
+			c.Next()
 			return
 		}
 	}

@@ -70,8 +70,23 @@ type tree struct {
 	root   *node
 }
 
+type node struct {
+	kind       int8
+	prefix     string
+	handlers   []HandlerFunc
+	parent     *node
+	children   []*node
+	paramChild *node
+	anyChild   *node
+	params     []string
+}
+
+func newNode(kind int8, prefix string, handlers []HandlerFunc, parent *node, children []*node, paramChild *node, anyChild *node, params []string) *node {
+	return &node{kind: kind, prefix: prefix, handlers: handlers, parent: parent, children: children, paramChild: paramChild, anyChild: anyChild, params: params}
+}
+
 // Parses the path and inserts it into the radix.
-func (tree *tree) addRoute(path string, handler HandlerFunc) {
+func (tree *tree) addRoute(path string, handlers []HandlerFunc) {
 	checkPathValid(path)
 	var params []string
 	pathLen := len(path)
@@ -85,23 +100,23 @@ func (tree *tree) addRoute(path string, handler HandlerFunc) {
 			path = path[:j] + path[i:]
 			i, pathLen = j, len(path)
 			if i == pathLen {
-				tree.insert(path[:i], handler, pkind, params)
+				tree.insert(path[:i], handlers, pkind, params)
 				return
 			}
 			tree.insert(path[:i], nil, pkind, params)
 		} else if path[i] == anyLabel {
 			tree.insert(path[:i], nil, skind, nil)
 			params = append(params, path[i+1:])
-			tree.insert(path[:i+1], handler, akind, params)
+			tree.insert(path[:i+1], handlers, akind, params)
 			return
 		}
 	}
 	// Insert static path if no params
-	tree.insert(path, handler, skind, params)
+	tree.insert(path, handlers, skind, params)
 }
 
 // Insert a new route into the tree
-func (tree *tree) insert(path string, handler HandlerFunc, kind int8, params []string) {
+func (tree *tree) insert(path string, handlers []HandlerFunc, kind int8, params []string) {
 	currentNode := tree.root
 	search := path
 	for {
@@ -117,7 +132,7 @@ func (tree *tree) insert(path string, handler HandlerFunc, kind int8, params []s
 		}
 		if lcpLen < prefixLen {
 			// Create a new child node
-			n := newNode(currentNode.kind, currentNode.prefix[lcpLen:], currentNode.handler, currentNode, currentNode.children, currentNode.paramChild, currentNode.anyChild, currentNode.params)
+			n := newNode(currentNode.kind, currentNode.prefix[lcpLen:], currentNode.handlers, currentNode, currentNode.children, currentNode.paramChild, currentNode.anyChild, currentNode.params)
 			for _, child := range currentNode.children {
 				child.parent = n
 			}
@@ -131,23 +146,23 @@ func (tree *tree) insert(path string, handler HandlerFunc, kind int8, params []s
 			currentNode.kind = skind
 			currentNode.prefix = currentNode.prefix[:lcpLen]
 			currentNode.children = nil
-			currentNode.handler = nil
+			currentNode.handlers = nil
 			currentNode.paramChild = nil
 			currentNode.anyChild = nil
 			currentNode.children = []*node{n}
 			if lcpLen == searchLen {
 				// Set the handler to the current node
 				currentNode.kind = kind
-				currentNode.handler = handler
+				currentNode.handlers = handlers
 				currentNode.params = params
 			} else {
-				currentNode.children = append(currentNode.children, newNode(kind, search[lcpLen:], handler, currentNode, nil, nil, nil, params))
+				currentNode.children = append(currentNode.children, newNode(kind, search[lcpLen:], handlers, currentNode, nil, nil, nil, params))
 			}
 		} else if lcpLen < searchLen {
 			// Continue search
 			search = search[lcpLen:]
 			if nextNode := currentNode.findChildWithLabel(search[0]); nextNode == nil {
-				child := newNode(kind, search, handler, currentNode, nil, nil, nil, params)
+				child := newNode(kind, search, handlers, currentNode, nil, nil, nil, params)
 				if kind == skind {
 					currentNode.children = append(currentNode.children, child)
 				} else if kind == pkind {
@@ -161,11 +176,11 @@ func (tree *tree) insert(path string, handler HandlerFunc, kind int8, params []s
 			}
 		} else {
 			// Node already exist
-			if currentNode.handler != nil && handler != nil {
+			if currentNode.handlers != nil && handlers != nil {
 				panic("handlers are already registered for path '" + path + "'")
 			}
-			if handler != nil {
-				currentNode.handler = handler
+			if handlers != nil {
+				currentNode.handlers = handlers
 				currentNode.params = params
 			}
 		}
@@ -174,7 +189,7 @@ func (tree *tree) insert(path string, handler HandlerFunc, kind int8, params []s
 }
 
 // Finds registered handler by path
-func (tree *tree) find(path string, params *[]Param) (handler HandlerFunc) {
+func (tree *tree) find(path string, params *[]Param) (handlers []HandlerFunc) {
 	var (
 		currentNode = tree.root
 		search      = path
@@ -196,7 +211,7 @@ func (tree *tree) find(path string, params *[]Param) (handler HandlerFunc) {
 		}
 		// End of path
 		if search == nilString {
-			handler = currentNode.handler
+			handlers = currentNode.handlers
 			break
 		}
 		// Static node match
@@ -219,7 +234,7 @@ func (tree *tree) find(path string, params *[]Param) (handler HandlerFunc) {
 			search = search[i:]
 			searchIndex += i
 			if search == nilString {
-				handler = currentNode.handler
+				handlers = currentNode.handlers
 				break
 			}
 			continue
@@ -232,7 +247,7 @@ func (tree *tree) find(path string, params *[]Param) (handler HandlerFunc) {
 			paramIndex++
 			search = nilString
 			searchIndex += len(search)
-			handler = currentNode.handler
+			handlers = currentNode.handlers
 			break
 		}
 		// Backtrack
@@ -288,19 +303,4 @@ func (n *node) findChildWithLabel(char byte) *node {
 		return n.anyChild
 	}
 	return nil
-}
-
-type node struct {
-	kind       int8
-	prefix     string
-	handler    HandlerFunc
-	parent     *node
-	children   []*node
-	paramChild *node
-	anyChild   *node
-	params     []string
-}
-
-func newNode(kind int8, prefix string, handler HandlerFunc, parent *node, children []*node, paramChild *node, anyChild *node, params []string) *node {
-	return &node{kind: kind, prefix: prefix, handler: handler, parent: parent, children: children, paramChild: paramChild, anyChild: anyChild, params: params}
 }

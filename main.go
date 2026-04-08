@@ -7,6 +7,7 @@ import (
 
 func main() {
 	r := gro.New()
+	r.Use(gro.Logger())
 	hello := r.Group("/hello")
 	hello.GET("/gro", func(context *gro.Context) {
 		context.String(http.StatusOK, "Hello Gro")
@@ -18,6 +19,7 @@ func main() {
 		context.String(http.StatusOK, "hello %s", context.ParamMap["name"])
 	})
 	login := r.Group("/login")
+	login.Use(gro.TestLogin())
 	login.POST("/", func(context *gro.Context) {
 		context.JSON(http.StatusOK, gro.H{
 			"username": context.PostForm("username"),

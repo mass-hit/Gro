@@ -15,6 +15,21 @@ type Context struct {
 	Method     string
 	ParamMap   map[string]string
 	StatusCode int
+	Handlers   []HandlerFunc
+	index      int8
+}
+
+func NewContext(writer http.ResponseWriter, req *http.Request) *Context {
+	return &Context{Writer: writer, Req: req, Path: req.URL.Path, Method: req.Method, index: -1}
+}
+
+// Next executes the pending handlers
+func (c *Context) Next() {
+	c.index++
+	indexLen := int8(len(c.Handlers))
+	for ; c.index < indexLen; c.index++ {
+		c.Handlers[c.index](c)
+	}
 }
 
 func (c *Context) PostForm(key string) string {
