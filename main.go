@@ -7,7 +7,7 @@ import (
 
 func main() {
 	r := gro.New()
-	r.Use(gro.Logger())
+	r.Use(gro.Logger(), gro.Recovery())
 	hello := r.Group("/hello")
 	hello.GET("/gro", func(context *gro.Context) {
 		context.String(http.StatusOK, "Hello Gro")
@@ -31,6 +31,10 @@ func main() {
 			"name": context.ParamMap["name"],
 			"age":  context.ParamMap["age"],
 		})
+	})
+	r.GET("/panic", func(context *gro.Context) {
+		names := []string{"zero"}
+		context.String(http.StatusOK, names[100])
 	})
 	r.Run(":8080")
 }

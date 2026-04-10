@@ -74,3 +74,8 @@ func (c *Context) Data(code int, data []byte) {
 	c.Status(code)
 	c.Writer.Write(data)
 }
+
+func (c *Context) Fail(code int, err string) {
+	c.index = int8(len(c.Handlers))
+	c.JSON(code, H{"message": err})
+}
